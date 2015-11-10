@@ -15,6 +15,16 @@ import java.nio.charset.StandardCharsets;
 public class JSeaBattleRouter {
     
     private static final class BattleConnection {
+        
+        private static final String pattern1 = "##BODY#", 
+                pattern2 = "#";
+        
+        private static final ByteBuffer writeBuffer;
+
+        static {
+            writeBuffer = ByteBuffer.allocate(16384);
+        }
+        
         private SocketChannel m_c1, m_c2 = null;
         private String m_StartMessage;
         
@@ -26,6 +36,42 @@ public class JSeaBattleRouter {
         public final void addClient2(SocketChannel c2, String msg) {
             if(m_c2 == null) {
                 m_c2 = c2;
+                
+                int f1_t = m_StartMessage.indexOf(BattleConnection.pattern1),
+                        f2_t = m_StartMessage.indexOf(BattleConnection.pattern2, 
+                                f1_t + BattleConnection.pattern1.length());
+
+                int f1_m = msg.indexOf(BattleConnection.pattern1),
+                        f2_m = msg.indexOf(BattleConnection.pattern2, 
+                                f1_m + BattleConnection.pattern1.length());
+                
+                int luck_t = Integer.parseInt(
+                        m_StartMessage.substring(
+                                f1_t + BattleConnection.pattern1.length(), 
+                                f2_t)),
+                        luck_m = Integer.parseInt(
+                                msg.substring(
+                                        f1_m + BattleConnection.pattern1.length(), 
+                                        f2_m));
+                
+                if(luck_t == luck_m) {
+                    ++luck_t;
+                    m_StartMessage = String.format("%1$s%2$d%3$s", 
+                            m_StartMessage.substring(
+                                    0, 
+                                    f1_t + BattleConnection.pattern1.length()), 
+                            luck_t, 
+                            m_StartMessage.substring(f2_t));
+                    
+                    --luck_m;
+                    msg = String.format("%1$s%2$d%3$s", 
+                            msg.substring(
+                                    0, 
+                                    f1_m + BattleConnection.pattern1.length()), 
+                            luck_m, 
+                            msg.substring(f2_m));
+                }
+                
                 redirectMessage(m_c1, m_StartMessage);
                 redirectMessage(m_c2, msg);
             }
@@ -73,12 +119,19 @@ public class JSeaBattleRouter {
                 
                 if(_dest != null) {
                     try {
-                        _dest.socket().getOutputStream().write(
-                                msg.getBytes(StandardCharsets.UTF_8));
+                        BattleConnection.writeBuffer.clear();
+                        BattleConnection.writeBuffer.put(msg.getBytes(StandardCharsets.UTF_8));
+                        BattleConnection.writeBuffer.flip();
+                        _dest.write(BattleConnection.writeBuffer);
                         _result = true;
                     }
                     catch(Exception e) {
-                        
+                        if(JSeaBattleRouter.logging) {
+                            System.err.println(
+                                    String.format(
+                                            "Exception redirect massage: %1$s\n", 
+                                            e));
+                        }
                     }
                 }
             }
@@ -98,10 +151,15 @@ public class JSeaBattleRouter {
                 _sk.cancel();
                 
                 try {
+                    ch.close();
                     ch.socket().close();
                 }
                 catch(Exception e) {
-                    
+                    if(JSeaBattleRouter.logging) {
+                        System.err.println(
+                                String.format(
+                                        "Exception close socket: %1$s\n", e));
+                    }
                 }
             }
         }
@@ -125,6 +183,7 @@ public class JSeaBattleRouter {
     private static final String idFindPattern = "##ID#";
     private static final HashMap<Integer, BattleConnection> connections;
     private static boolean logging = false;
+    private static byte[] encodeBuffer = new byte[500];
     
     static {
         readBuffer = ByteBuffer.allocate(16384);
@@ -209,7 +268,7 @@ public class JSeaBattleRouter {
                                         String.format(
                                                 "Accept client %1$s:%2$s\n", 
                                                 _acc_s.socket().getInetAddress().getHostAddress(), 
-                                                _acc_s.socket().getLocalPort()));
+                                                _acc_s.socket().getPort()));
                             }
                             _acc_s.configureBlocking(false);
                             _acc_s.register(selector, SelectionKey.OP_READ);
@@ -236,7 +295,7 @@ public class JSeaBattleRouter {
                                             String.format(
                                                     "Disconnect client %1$s:%2$s\n", 
                                                     _sel_sc.socket().getInetAddress().getHostAddress(), 
-                                                    _sel_sc.socket().getLocalPort()));
+                                                    _sel_sc.socket().getPort()));
                                 }
                                 
                                 for(int _ck : JSeaBattleRouter.connections.keySet()) {
@@ -253,11 +312,22 @@ public class JSeaBattleRouter {
                             }
                             
                             if(JSeaBattleRouter.readBuffer.hasArray()) {
-                                byte[] _byte_msg = new byte[JSeaBattleRouter.readBuffer.limit()];
-                                JSeaBattleRouter.readBuffer.get(_byte_msg);
+                                if(JSeaBattleRouter.encodeBuffer.length < 
+                                        JSeaBattleRouter.readBuffer.limit()) {
+                                    JSeaBattleRouter.encodeBuffer = 
+                                            new byte[JSeaBattleRouter.readBuffer.limit()];
+                                }
+                                
+                                JSeaBattleRouter.readBuffer.get(
+                                        JSeaBattleRouter.encodeBuffer, 
+                                        0,
+                                        JSeaBattleRouter.readBuffer.limit());
+                                
                                 String _msg = 
                                         new String(
-                                                _byte_msg, 
+                                                JSeaBattleRouter.encodeBuffer, 
+                                                0,
+                                                JSeaBattleRouter.readBuffer.limit(),
                                                 StandardCharsets.UTF_8);
                                 
                                 if(JSeaBattleRouter.logging) {
@@ -265,7 +335,7 @@ public class JSeaBattleRouter {
                                             String.format(
                                                     "READ client %1$s:%2$s;\n[message]\n%3$s\n", 
                                                     _sel_sc.socket().getInetAddress().getHostAddress(), 
-                                                    _sel_sc.socket().getLocalPort(), _msg));
+                                                    _sel_sc.socket().getPort(), _msg));
                                 }
                                 
                                 int _connection_id = 0;
@@ -281,7 +351,7 @@ public class JSeaBattleRouter {
                                         System.err.println(
                                                 String.format(
                                                         "Exception parse client id: %1$s\n", 
-                                                        e.getMessage()));
+                                                        e));
                                     }
                                     
                                     if(JSeaBattleRouter.logging) {
@@ -319,8 +389,7 @@ public class JSeaBattleRouter {
                             if(JSeaBattleRouter.logging) {
                                 System.err.println(
                                         String.format(
-                                                "Exception read: %1$s\n", 
-                                                e.getMessage()));
+                                                "Exception read: %1$s\n", e));
                             }
                         }
                     }
@@ -333,8 +402,7 @@ public class JSeaBattleRouter {
             if(JSeaBattleRouter.logging) {
                 System.err.println(
                         String.format(
-                                "Exception select: %1$s\n", 
-                                e.getMessage()));
+                                "Exception select: %1$s\n", e));
             }
         }
     }
