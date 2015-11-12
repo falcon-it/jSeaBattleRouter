@@ -27,10 +27,12 @@ public class JSeaBattleRouter {
         
         private SocketChannel m_c1, m_c2 = null;
         private String m_StartMessage;
+        private int m_ID;
         
-        public BattleConnection(SocketChannel c1, String msg) {
+        public BattleConnection(SocketChannel c1, String msg, int id) {
             m_c1 = c1;
             m_StartMessage = msg;
+            m_ID = id;
         }
         
         public final void addClient2(SocketChannel c2, String msg) {
@@ -128,10 +130,10 @@ public class JSeaBattleRouter {
                         if(JSeaBattleRouter.logging) {
                             System.out.println(
                                     String.format(
-                                            "SEND client %1$s:%2$s/%3$s\n[messge]\n%4$s\n", 
+                                            "SEND client (ID=%5$s) %1$s:%2$s/%3$s\n[messge]\n%4$s\n", 
                                             _dest.socket().getInetAddress().getHostAddress(), 
                                             _dest.socket().getPort(), 
-                                            _dest.socket().getLocalPort(), msg));
+                                            _dest.socket().getLocalPort(), msg, m_ID));
                         }
                     }
                     catch(Exception e) {
@@ -153,16 +155,16 @@ public class JSeaBattleRouter {
                     BattleConnection.compareChannel(cc, m_c2));
         }
         
-        private static final void destroyChannel(Selector sel, SocketChannel ch) {
+        private static final void destroyChannel(Selector sel, SocketChannel ch, int ID) {
             SelectionKey _sk = ch.keyFor(sel);
             
             if(_sk != null) {
                 if(JSeaBattleRouter.logging) {
                     System.out.println(
                             String.format(
-                                    "Close client %1$s:%2$s/%3$s\n", 
+                                    "Close client (ID=%4$s) %1$s:%2$s/%3$s\n", 
                                     ch.socket().getInetAddress().getHostAddress(), 
-                                    ch.socket().getPort(), ch.socket().getLocalPort()));
+                                    ch.socket().getPort(), ch.socket().getLocalPort(), ID));
                 }
                 
                 _sk.cancel();
@@ -183,12 +185,12 @@ public class JSeaBattleRouter {
         
         public final void destroy(Selector sel) {
             if(m_c1 != null) {
-                BattleConnection.destroyChannel(sel, m_c1);
+                BattleConnection.destroyChannel(sel, m_c1, m_ID);
                 m_c1 = null;
             }
 
             if(m_c2 != null) {
-                BattleConnection.destroyChannel(sel, m_c2);
+                BattleConnection.destroyChannel(sel, m_c2, m_ID);
                 m_c2 = null;
             }
             
@@ -346,16 +348,7 @@ public class JSeaBattleRouter {
                                                 0,
                                                 JSeaBattleRouter.readBuffer.limit(),
                                                 StandardCharsets.UTF_8);
-                                
-                                if(JSeaBattleRouter.logging) {
-                                    System.out.println(
-                                            String.format(
-                                                    "READ client %1$s%2$s/%4$s;\n[message]\n%3$s\n", 
-                                                    _sel_sc.socket().getInetAddress().getHostAddress(), 
-                                                    _sel_sc.socket().getPort(), _msg, 
-                                                    _sel_sc.socket().getLocalPort()));
-                                }
-                                
+
                                 int _connection_id = 0;
                                 
                                 try {
@@ -382,6 +375,16 @@ public class JSeaBattleRouter {
                                     
                                     _sel_key.cancel();
                                     _sel_sc.socket().close();
+                                    continue;
+                                }
+                                
+                                if(JSeaBattleRouter.logging) {
+                                    System.out.println(
+                                            String.format(
+                                                    "READ client (ID=%5$s) %1$s%2$s/%4$s;\n[message]\n%3$s\n", 
+                                                    _sel_sc.socket().getInetAddress().getHostAddress(), 
+                                                    _sel_sc.socket().getPort(), _msg, 
+                                                    _sel_sc.socket().getLocalPort(), _connection_id));
                                 }
                                 
                                 if(JSeaBattleRouter.connections.containsKey(_connection_id)) {
@@ -399,7 +402,7 @@ public class JSeaBattleRouter {
                                 else {
                                     JSeaBattleRouter.connections.put(
                                             _connection_id, 
-                                            new BattleConnection(_sel_sc, _msg));
+                                            new BattleConnection(_sel_sc, _msg, _connection_id));
                                 }
                             }
                         }

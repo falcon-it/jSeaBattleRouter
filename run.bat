@@ -1,0 +1,1 @@
+java -jar jSeaBattleRouter.jar ports:1200,2220,555 logging:on
